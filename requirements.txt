@@ -1,0 +1,11 @@
+# Anamnese_App v1 — Python dependencies
+#
+# Minimaal: alleen Streamlit.
+# Geen Ollama-client (requests) in v1 — LLM-integratie is geparkeerd in future/.
+#
+# Installeren (automatisch via bootstrap_and_run.sh):
+#   python -m venv .venv
+#   source .venv/bin/activate
+#   pip install -r requirements.txt
+
+streamlit>=1.35

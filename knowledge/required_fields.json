@@ -1,0 +1,12 @@
+{
+  "required_fields": [
+    "HPI.begin",
+    "HPI.beloop",
+    "HPI.provocatie",
+    "HPI.verlichting",
+    "pijn.locaties",
+    "pijn.intensiteit_NRS",
+    "pijn.karakter",
+    "mechanisme_suspect.dominant"
+  ]
+}
