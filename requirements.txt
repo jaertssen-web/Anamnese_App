@@ -7,11 +7,19 @@
 #
 # Systeemvereisten buiten pip:
 #   brew install ffmpeg    # vereist door openai-whisper voor audio-decodering
+#   macOS mic-toestemming voor Terminal/Python (voor live opname)
 
-# UI
-streamlit>=1.35
+# UI — st.fragment(run_every=) vereist ≥ 1.37 (live transcriptie)
+streamlit>=1.37
 
 # Lokale Whisper-transcriptie (offline, geen LLM-server nodig)
-# Ondersteunde formaten: .m4a, .mp3, .wav, .mp4, .ogg, .flac
-# Modellen worden automatisch gedownload bij eerste gebruik (~74MB voor base)
+# Modellen worden automatisch gedownload bij eerste gebruik (~74 MB voor base)
 openai-whisper>=20231117
+
+# Live audio-opname (v3.0 — chunked live transcriptie)
+# sounddevice: cross-platform InputStream via PortAudio
+# soundfile:   WAV schrijven vanuit numpy array
+# numpy:       audio-buffers
+sounddevice>=0.4.6
+soundfile>=0.12
+numpy>=1.24
