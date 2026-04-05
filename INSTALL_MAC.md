@@ -23,18 +23,34 @@ python3 --version    # verwacht: 3.10 of hoger
 
 ---
 
-## Stap 2b — ffmpeg (vereist voor audio-transcriptie)
+## Stap 2b — ffmpeg + audio-libraries (vereist voor transcriptie)
 
 ```bash
 brew install ffmpeg
 ```
 
 ffmpeg wordt gebruikt door Whisper voor audio-decodering.
-Zonder ffmpeg werkt de rest van de app normaal — alleen de audio-upload is uitgeschakeld.
+Zonder ffmpeg werkt de rest van de app normaal — alleen audio-upload en transcriptie zijn uitgeschakeld.
 
 ---
 
-## Stap 2c — Microfoontoestemming (voor opnamefunctie)
+## Stap 2c — Microfoontoestemming voor live transcriptie
+
+Live transcriptie (v3.0) neemt op via de **systeemmicrofoon** direct vanuit Python (via sounddevice/PortAudio), **niet via de browser**.
+
+**Eenmalige instelling:**
+1. **macOS Systeeminstellingen → Privacy en beveiliging → Microfoon**
+2. Activeer **Terminal** (of de Python-launcher die je gebruikt)
+
+macOS vraagt dit automatisch bij de eerste opnamepoging. Klik op "Toestaan" in de pop-up.
+
+**Verschil met Microfoonopname-tab (v2.0):**
+- Microfoonopname-tab: toestemming via de browser (Chrome/Firefox)
+- Live transcriptie-tab: toestemming via Terminal/Python-proces
+
+---
+
+## Stap 2d — Microfoontoestemming voor Microfoonopname-tab (browser)
 
 De opnamefunctie gebruikt de microfoon via de browser. macOS vereist expliciet toestemming.
 
@@ -138,4 +154,5 @@ Op Apple Silicon (M1/M2/M3) worden modellen automatisch via Metal (MPS) versneld
 | RAM | 4 GB | 8 GB+ aanbevolen voor medium/large |
 | Schijfruimte | 500 MB | inclusief Whisper base-model |
 | ffmpeg | vereist voor audio | `brew install ffmpeg` |
-| Ollama | niet vereist | LLM-coach geparkeerd voor v2+ |
+| sounddevice / soundfile | vereist voor live opname | via pip (requirements.txt) |
+| Ollama | niet vereist | LLM-coach geparkeerd voor toekomstige versie |

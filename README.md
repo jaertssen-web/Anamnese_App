@@ -3,7 +3,7 @@
 Spreekuurtool voor gestructureerde pijnanamnese tijdens consult.
 
 **Geen online AI, geen klinische analyse.**
-Lokale Whisper-transcriptie + microfoonopname beschikbaar (v2.0). Klinische analyse en DD geparkeerd in `future/`.
+Lokale Whisper-transcriptie + live transcriptie (chunked, ~8s latency) beschikbaar (v3.0). Klinische analyse en DD geparkeerd in `future/`.
 De basisdekking-coach is actief — zie sectie hieronder.
 
 ---
@@ -45,7 +45,7 @@ Open: **http://localhost:8503**
 
 ---
 
-## Workflow v2.0
+## Workflow v3.0
 
 1. **Sidebar** — patiënt-ID + datum invullen (maakt consultmap aan)
 2. **Patiëntgegevens** — initialen, leeftijd, geslacht
@@ -55,10 +55,10 @@ Open: **http://localhost:8503**
 6. **Medicatie** — relevant (naam · dosering · startdatum)
 7. **Plan** — diagnostiek, voorlichting, niet-farm., farm., interventioneel
 8. **Transcript** — vier invoermethoden (naar keuze):
-   - **Microfoonopname** → start/stop in browser → "Transcribeer opname" (lokale Whisper, offline) — gebruik Chrome; Safari kan instabiel zijn
-   - **Audio uploaden** (.m4a/.mp3/.wav) → "Transcribeer audio" (lokale Whisper, offline)
-   - `.txt` importeren (MacWhisper / AutoScriber)
-   - Handmatig plakken of typen
+   - **Live transcriptie (beta)** → Start → spreek in → transcript groeit per ~8s blok → coach beweegt mee (systeemmicrofoon via Python)
+   - **Microfoonopname** → start/stop in browser → "Transcribeer opname" na afloop — gebruik Chrome; Safari kan instabiel zijn
+   - **Audio uploaden** (.m4a/.mp3/.wav) → "Transcribeer audio" (lokale Whisper)
+   - `.txt` importeren (MacWhisper / AutoScriber) of handmatig plakken
 9. **Vrije notities** — eigen observaties en aanvullingen
 10. **Dekkingsmeter** — checkt 8 verplichte kernvelden (leeg / twijfelachtig / bruikbaar)
 11. **Basisdekking gesprek** — coach signaleert open anamnese-onderdelen (9 kern + 6 experimenteel)
