@@ -48,6 +48,7 @@ from domain.basic_coverage_coach import EXPERIMENTAL_TOPIC_IDS                  
 from domain.transcriber import (                                                      # noqa: E402
     whisper_available, load_whisper_model, transcribe_audio_file,
 )
+from domain.recorder import AudioRecorder, sounddevice_available                      # noqa: E402
 
 DATA_ROOT.mkdir(parents=True, exist_ok=True)
 
@@ -60,6 +61,83 @@ DATA_ROOT.mkdir(parents=True, exist_ok=True)
 def _get_whisper_model(model_name: str):
     """Laad Whisper-model en cache het voor de duur van de Streamlit-sessie."""
     return load_whisper_model(model_name)
+
+
+# ---------------------------------------------------------------------------
+# Live transcriptie fragment (v3.0)
+# Auto-refresh elke 8s als opname actief is.
+# Vereist st.fragment (Streamlit ≥ 1.37). Graceful fallback als niet beschikbaar.
+# ---------------------------------------------------------------------------
+
+def _live_transcription_fragment_fallback() -> None:
+    st.caption("Live transcriptie vereist Streamlit ≥ 1.37. Upgrade: `pip install --upgrade streamlit`")
+
+
+if hasattr(st, "fragment"):
+    @st.fragment(run_every=8)
+    def _live_transcription_fragment() -> None:
+        """
+        Draait elke 8s als live-opname actief is.
+        - Haalt chunk op uit de recorder
+        - Transcribeert via bestaande Whisper-laag
+        - Appended aan state["transcript"]["tekst"] — nooit overschrijven
+        - Roept st.rerun() aan zodat coach herberekent
+        """
+        recorder: AudioRecorder | None = st.session_state.get("_live_recorder")
+        if recorder is None or not recorder.is_active:
+            return
+
+        _sk = st.session_state.get("_current_state_key")
+        if not _sk:
+            return
+        _state = st.session_state.get(_sk)
+        if _state is None:
+            return
+
+        # Timer tonen (fragment-niveau)
+        elapsed = int(recorder.elapsed_seconds)
+        mins, secs = divmod(elapsed, 60)
+        st.caption(f"Opname: {mins:02d}:{secs:02d} — wacht op volgend blok...")
+
+        # Chunk ophalen
+        chunk_path = recorder.get_chunk()
+        if chunk_path is None:
+            return  # Nog niet genoeg audio — volgende auto-rerun
+
+        # Transcriberen
+        model_name = st.session_state.get("whisper_model", "base")
+        t_result   = {"text": "", "language": "nl", "error": None}
+        try:
+            _model   = _get_whisper_model(model_name)
+            t_result = transcribe_audio_file(chunk_path, _model)
+        except Exception as exc:
+            t_result["error"] = str(exc)
+        finally:
+            try:
+                chunk_path.unlink()
+            except OSError:
+                pass
+
+        if t_result["error"]:
+            st.warning(f"Blok overgeslagen: {t_result['error']}")
+            return
+
+        chunk_text = t_result["text"].strip()
+        if not chunk_text:
+            return
+
+        # Append — bestaande tekst wordt nooit vervangen
+        current = (_state["transcript"].get("tekst") or "")
+        sep     = " " if current and not current.endswith(("\n", " ")) else ""
+        new_text = current + sep + chunk_text
+        _state["transcript"]["tekst"]        = new_text
+        _state["transcript"]["bron"]         = "live_whisper_chunked"
+        st.session_state["transcript_paste"] = new_text
+
+        # Volledige rerun zodat coach herberekent
+        st.rerun()
+else:
+    _live_transcription_fragment = _live_transcription_fragment_fallback
 
 
 # ---------------------------------------------------------------------------
@@ -136,6 +214,8 @@ if _state_key not in st.session_state:
 state = st.session_state[_state_key]
 state["context"]["datum_consult"] = datum
 state["context"]["instelling"] = instelling
+# Bewaar state-key zodat het live-fragment er via session_state bij kan
+st.session_state["_current_state_key"] = _state_key
 
 
 # ---------------------------------------------------------------------------
@@ -382,7 +462,9 @@ with col_invul:
                     f"model: {_whisper_model_name}"
                 )
 
-        _tab_opname, _tab_upload = st.tabs(["Microfoonopname", "Audio uploaden"])
+        _tab_opname, _tab_upload, _tab_live = st.tabs(
+            ["Microfoonopname", "Audio uploaden", "Live transcriptie (beta)"]
+        )
 
         # ── Tab 1: Microfoonopname ────────────────────────────────────────
         with _tab_opname:
@@ -455,6 +537,118 @@ with col_invul:
                         bestandsnaam=audio_file.name,
                         suffix=_suffix,
                     )
+
+        # ── Tab 3: Live transcriptie (beta) ───────────────────────────────
+        with _tab_live:
+            _sd_ok       = sounddevice_available()
+            _frag_ok     = hasattr(st, "fragment")
+            _live_ready  = _whisper_ok and _sd_ok and _frag_ok
+
+            # Vereistencheck — altijd zichtbaar
+            if not _whisper_ok:
+                st.caption("❌ Whisper niet geïnstalleerd — `pip install openai-whisper`")
+            if not _sd_ok:
+                st.caption(
+                    "❌ sounddevice/soundfile niet geïnstalleerd — "
+                    "`pip install sounddevice soundfile numpy`  \n"
+                    "Na installatie: herstart de app."
+                )
+            if not _frag_ok:
+                st.caption(
+                    "❌ Streamlit ≥ 1.37 vereist — "
+                    "`pip install --upgrade streamlit`"
+                )
+
+            if not _live_ready:
+                st.info("Installeer de ontbrekende dependencies om live transcriptie te activeren.")
+            else:
+                st.caption(
+                    "Neemt op via de **systeemmicrofoon** (niet de browser).  \n"
+                    "Verwerkt audio in blokken van ~8s. Transcript groeit automatisch.  \n"
+                    "Coach herberekent na elk blok.  \n"
+                    "Bestaande transcript-tekst blijft bewaard — nieuwe tekst wordt toegevoegd."
+                )
+
+                _live_recorder: AudioRecorder | None = st.session_state.get("_live_recorder")
+                _is_recording = _live_recorder is not None and _live_recorder.is_active
+
+                _col_start, _col_stop = st.columns(2)
+
+                with _col_start:
+                    if st.button(
+                        "Start live transcriptie",
+                        key="live_start_btn",
+                        type="primary",
+                        disabled=_is_recording,
+                        use_container_width=True,
+                    ):
+                        _new_rec = AudioRecorder()
+                        try:
+                            _new_rec.start()
+                            st.session_state["_live_recorder"] = _new_rec
+                            state["transcript"]["bron"] = "live_whisper_chunked"
+                            if not state["transcript"].get("bestandsnaam"):
+                                state["transcript"]["bestandsnaam"] = "live_opname"
+                            st.rerun()
+                        except Exception as _exc:
+                            _err_str = str(_exc)
+                            if any(k in _err_str.lower() for k in ("portaudio", "device", "input")):
+                                st.error(
+                                    f"Microfoon niet bereikbaar: {_err_str}  \n"
+                                    "Controleer: macOS Systeeminstellingen → "
+                                    "Privacy en beveiliging → Microfoon → "
+                                    "activeer **Terminal** of **Python**."
+                                )
+                            else:
+                                st.error(f"Opname starten mislukt: {_err_str}")
+
+                with _col_stop:
+                    if st.button(
+                        "Stop",
+                        key="live_stop_btn",
+                        disabled=not _is_recording,
+                        use_container_width=True,
+                    ):
+                        if _live_recorder is not None:
+                            _live_recorder.stop()
+                            # Verwerk resterende audio in buffer
+                            _final_chunk = _live_recorder.get_chunk()
+                            if _final_chunk is not None:
+                                with st.spinner("Laatste blok transcriberen..."):
+                                    _mn = st.session_state.get("whisper_model", "base")
+                                    _final_result = {"text": "", "error": None}
+                                    try:
+                                        _fm = _get_whisper_model(_mn)
+                                        _final_result = transcribe_audio_file(_final_chunk, _fm)
+                                    except Exception as _exc:
+                                        _final_result["error"] = str(_exc)
+                                    finally:
+                                        try:
+                                            _final_chunk.unlink()
+                                        except OSError:
+                                            pass
+                                if _final_result["error"]:
+                                    st.warning(f"Slotblok overgeslagen: {_final_result['error']}")
+                                elif _final_result["text"].strip():
+                                    _cur  = state["transcript"]["tekst"] or ""
+                                    _sep  = " " if _cur and not _cur.endswith(("\n", " ")) else ""
+                                    _new  = _cur + _sep + _final_result["text"].strip()
+                                    state["transcript"]["tekst"]        = _new
+                                    st.session_state["transcript_paste"] = _new
+                            st.session_state["_live_recorder"] = None
+                            st.success("Opname gestopt. Transcript compleet.")
+                            st.rerun()
+
+                # Status
+                if _is_recording:
+                    st.info(
+                        "Opname actief — spreek in.  \n"
+                        "Transcript verschijnt per blok van ~8s. "
+                        "Coach herberekent na elk blok."
+                    )
+
+                # Fragment — auto-refresh voor chunk-verwerking
+                _live_transcription_fragment()
 
         st.divider()
 
