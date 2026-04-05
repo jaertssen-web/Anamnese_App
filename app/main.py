@@ -17,6 +17,7 @@ Start:
 import json
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 import streamlit as st
@@ -38,11 +39,27 @@ from domain.state import (                       # noqa: E402
     sanitize_pid_and_date, init_consult_dir,
 )
 from domain.coverage import missing_table, coverage_score, compute_open_fields_hint  # noqa: E402
-from domain.exporter import build_markdown, default_report_name                      # noqa: E402
+from domain.exporter import (                                                         # noqa: E402
+    build_markdown, default_report_name,
+    build_analysis_input_text, default_analysis_export_name,
+)
 from domain.coach_backend import get_coach                                           # noqa: E402
 from domain.basic_coverage_coach import EXPERIMENTAL_TOPIC_IDS                       # noqa: E402
+from domain.transcriber import (                                                      # noqa: E402
+    whisper_available, load_whisper_model, transcribe_audio_file,
+)
 
 DATA_ROOT.mkdir(parents=True, exist_ok=True)
+
+
+# ---------------------------------------------------------------------------
+# Whisper model cache (laden kost 5-30s; eenmalig per sessie)
+# ---------------------------------------------------------------------------
+
+@st.cache_resource
+def _get_whisper_model(model_name: str):
+    """Laad Whisper-model en cache het voor de duur van de Streamlit-sessie."""
+    return load_whisper_model(model_name)
 
 
 # ---------------------------------------------------------------------------
@@ -73,7 +90,7 @@ st.set_page_config(
 )
 
 st.title("Anamnese App")
-st.caption("Spreekuurtool · versie 1.2 · geen LLM")
+st.caption("Spreekuurtool · v2.0 · lokale Whisper · geen online AI")
 
 
 # ---------------------------------------------------------------------------
@@ -104,7 +121,7 @@ with st.sidebar:
         st.caption(f"Mapnaam: `{pid}` (speciale tekens vervangen)")
     st.caption(f"Opslag: `data/patienten/{pid}/{datum}/`")
     st.divider()
-    st.caption("v1.2 · geen LLM · coach (9 kern + 6 experimenteel)")
+    st.caption("v2.0 · lokale Whisper · coach (9 kern + 6 exp.)")
 
 
 # ---------------------------------------------------------------------------
@@ -302,7 +319,146 @@ with col_invul:
         if "transcript" not in state or not isinstance(state["transcript"], dict):
             state["transcript"] = {"tekst": "", "bron": "", "bestandsnaam": ""}
 
-        # .txt upload (MacWhisper / AutoScriber) — verwerkt vóór text_area
+        # ── Transcriptie via opname of audio-upload (lokale Whisper) ────────
+        _whisper_ok = whisper_available()
+
+        st.markdown("**Transcriptie via opname of audio-upload** — lokale Whisper")
+
+        if not _whisper_ok:
+            st.caption(
+                "Whisper niet geïnstalleerd. "
+                "Installeer: `pip install openai-whisper` + `brew install ffmpeg`. "
+                "Zie INSTALL_MAC.md."
+            )
+
+        # Model selector — gedeeld voor opname en upload
+        _whisper_model_name = st.selectbox(
+            "Whisper-model",
+            options=["base", "small", "medium", "large-v2"],
+            index=0,
+            key="whisper_model",
+            disabled=not _whisper_ok,
+            help=(
+                "base: snel (aanbevolen voor testen)\n"
+                "small: beter NL\n"
+                "medium: beste kwaliteit medisch NL\n"
+                "large-v2: traag op CPU"
+            ),
+        )
+
+        # Gedeelde transcriptie-uitvoering voor opname en upload
+        def _run_transcription(
+            audio_bytes: bytes,
+            bron: str,
+            bestandsnaam: str,
+            suffix: str = ".wav",
+        ) -> None:
+            with st.spinner(
+                f"Transcriberen met Whisper ({_whisper_model_name}) — "
+                "eerste keer: model laden duurt ca. 10-30s..."
+            ):
+                with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as _tmp:
+                    _tmp.write(audio_bytes)
+                    _tmp_path = Path(_tmp.name)
+                try:
+                    _model = _get_whisper_model(_whisper_model_name)
+                    _t_result = transcribe_audio_file(_tmp_path, _model)
+                finally:
+                    try:
+                        _tmp_path.unlink()
+                    except OSError:
+                        pass
+            if _t_result["error"]:
+                st.error(f"Transcriptie mislukt: {_t_result['error']}")
+            else:
+                state["transcript"]["tekst"]        = _t_result["text"]
+                state["transcript"]["bron"]         = bron
+                state["transcript"]["bestandsnaam"] = bestandsnaam
+                st.session_state["transcript_paste"] = _t_result["text"]
+                _n_w = len(_t_result["text"].split())
+                st.success(
+                    f"Getranscribeerd: {_n_w} woorden · "
+                    f"taal: {_t_result['language']} · "
+                    f"model: {_whisper_model_name}"
+                )
+
+        _tab_opname, _tab_upload = st.tabs(["Microfoonopname", "Audio uploaden"])
+
+        # ── Tab 1: Microfoonopname ────────────────────────────────────────
+        with _tab_opname:
+            if not _whisper_ok:
+                st.caption("Whisper niet geïnstalleerd — zie bericht hierboven.")
+            elif not hasattr(st, "audio_input"):
+                st.caption(
+                    "Microfoonopname vereist Streamlit ≥ 1.35. "
+                    "Upgrade: `pip install --upgrade streamlit`"
+                )
+            else:
+                st.caption(
+                    "Klik op de microfoonknop om te starten · klik opnieuw om te stoppen.  \n"
+                    "De browser vraagt eenmalig toestemming voor de microfoon.  \n"
+                    "Gebruik bij voorkeur **Chrome** op macOS — Safari kan instabiel zijn."
+                )
+                try:
+                    _recorded = st.audio_input(
+                        "Opname",
+                        key="mic_input",
+                        label_visibility="collapsed",
+                    )
+                except Exception as _exc:
+                    st.warning(
+                        f"Microfooninput niet beschikbaar: {_exc}  \n"
+                        "Controleer microfoontoestemming: macOS Systeeminstellingen → "
+                        "Privacy → Microfoon → activeer de browser."
+                    )
+                    _recorded = None
+
+                if _recorded is not None:
+                    _rec_bytes = _recorded.getvalue()
+                    st.caption(f"Opname gereed: {len(_rec_bytes) // 1024} KB · WAV")
+                    st.audio(_rec_bytes, format="audio/wav")
+                    if st.button(
+                        "Transcribeer opname",
+                        key="transcribe_recording_btn",
+                        use_container_width=True,
+                    ):
+                        _run_transcription(
+                            _rec_bytes,
+                            bron="live_recording_local",
+                            bestandsnaam="microfoonopname.wav",
+                            suffix=".wav",
+                        )
+
+        # ── Tab 2: Audio-upload ───────────────────────────────────────────
+        with _tab_upload:
+            if not _whisper_ok:
+                st.caption("Whisper niet geïnstalleerd — zie bericht hierboven.")
+            audio_file = st.file_uploader(
+                "Audio uploaden  (.m4a .mp3 .wav .mp4 .ogg .flac)",
+                type=["m4a", "mp3", "wav", "mp4", "ogg", "flac"],
+                key="audio_upload",
+                disabled=not _whisper_ok,
+                label_visibility="collapsed",
+            )
+            if audio_file is not None:
+                st.caption(f"`{audio_file.name}` — {audio_file.size // 1024} KB")
+                if st.button(
+                    "Transcribeer audio",
+                    key="transcribe_btn",
+                    disabled=not _whisper_ok,
+                    use_container_width=True,
+                ):
+                    _suffix = Path(audio_file.name).suffix.lower() or ".mp3"
+                    _run_transcription(
+                        audio_file.getvalue(),
+                        bron="local_whisper",
+                        bestandsnaam=audio_file.name,
+                        suffix=_suffix,
+                    )
+
+        st.divider()
+
+        # ── .txt import (MacWhisper / AutoScriber) ────────────────────────
         uploaded_txt = st.file_uploader(
             "Importeer transcript (.txt — bijv. MacWhisper of AutoScriber)",
             type=["txt"],
@@ -311,30 +467,37 @@ with col_invul:
         )
         if uploaded_txt is not None:
             content = uploaded_txt.getvalue().decode("utf-8", errors="replace")
-            state["transcript"]["tekst"] = content
-            state["transcript"]["bron"] = "upload"
+            state["transcript"]["tekst"]        = content
+            state["transcript"]["bron"]         = "upload"
             state["transcript"]["bestandsnaam"] = uploaded_txt.name
+            st.session_state["transcript_paste"] = content
             st.caption(f"Geladen: `{uploaded_txt.name}` — {len(content.split())} woorden")
 
-        # Bewerkbaar tekstveld — altijd zichtbaar, ook na upload
+        # ── Bewerkbaar tekstveld — altijd zichtbaar ───────────────────────
         transcript_val = st.text_area(
             "Plak of bewerk transcript",
             value=state["transcript"]["tekst"] or "",
             height=220,
             key="transcript_paste",
-            placeholder="Plak hier het ruwe transcript uit MacWhisper, AutoScriber of een ander hulpmiddel...",
+            placeholder="Plak hier een transcript, of transcribeer via audio hierboven...",
             label_visibility="collapsed",
         )
-        # Sla wijzigingen op in state; bij handmatig plakken: bron = "geplakt"
+        # Handmatige bewerking: bron bijwerken
         if transcript_val != state["transcript"]["tekst"]:
             state["transcript"]["bron"] = "geplakt"
             state["transcript"]["bestandsnaam"] = ""
         state["transcript"]["tekst"] = transcript_val
 
         if transcript_val.strip():
+            _bron_label = {
+                "local_whisper": "lokale Whisper",
+                "upload":        "geüploade .txt",
+                "geplakt":       "handmatig",
+            }.get(state["transcript"].get("bron", ""), "")
             n_woorden = len(transcript_val.split())
-            n_regels = transcript_val.count("\n") + 1
-            st.caption(f"{n_woorden} woorden · {n_regels} regels")
+            n_regels  = transcript_val.count("\n") + 1
+            _bron_str = f" · bron: {_bron_label}" if _bron_label else ""
+            st.caption(f"{n_woorden} woorden · {n_regels} regels{_bron_str}")
 
     # ── Vrije notities ────────────────────────────────────────────────────
     with st.expander("Vrije notities", expanded=False):
@@ -461,6 +624,30 @@ with col_dek:
 
     with st.expander("Voorbeeld verslag", expanded=False):
         st.code(md, language="markdown")
+
+    st.divider()
+
+    # ── Analyse-export (voor Anamnese_Anonymizer) ─────────────────────────
+    st.subheader("Voor anonimisering in Anamnese_Anonymizer")
+    st.caption(
+        "Platte werktekst met alle aanwezige inhoud. "
+        "Plak of laad dit bestand in Anamnese_Anonymizer."
+    )
+
+    analysis_txt = build_analysis_input_text(state, pid)
+    analysis_fn  = default_analysis_export_name(state, pid)
+
+    st.download_button(
+        label="Download werktekst (.txt)",
+        data=analysis_txt.encode("utf-8"),
+        file_name=analysis_fn,
+        mime="text/plain",
+        key="dl_analysis",
+        use_container_width=True,
+    )
+
+    with st.expander("Voorbeeld werktekst", expanded=False):
+        st.code(analysis_txt, language=None)
 
     st.divider()
 

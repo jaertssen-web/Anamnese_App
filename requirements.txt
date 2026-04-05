@@ -1,11 +1,17 @@
-# Anamnese_App v1 — Python dependencies
-#
-# Minimaal: alleen Streamlit.
-# Geen Ollama-client (requests) in v1 — LLM-integratie is geparkeerd in future/.
+# Anamnese_App — Python dependencies
 #
 # Installeren (automatisch via bootstrap_and_run.sh):
 #   python -m venv .venv
 #   source .venv/bin/activate
 #   pip install -r requirements.txt
+#
+# Systeemvereisten buiten pip:
+#   brew install ffmpeg    # vereist door openai-whisper voor audio-decodering
 
+# UI
 streamlit>=1.35
+
+# Lokale Whisper-transcriptie (offline, geen LLM-server nodig)
+# Ondersteunde formaten: .m4a, .mp3, .wav, .mp4, .ogg, .flac
+# Modellen worden automatisch gedownload bij eerste gebruik (~74MB voor base)
+openai-whisper>=20231117

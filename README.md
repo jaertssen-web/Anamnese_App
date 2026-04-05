@@ -2,18 +2,24 @@
 
 Spreekuurtool voor gestructureerde pijnanamnese tijdens consult.
 
-**Geen LLM, geen Ollama, geen klinische analyse.**
-Klinische analyse en DD zijn geparkeerd in `future/` voor v2+.
-De basisdekking-coach (v1.2) is actief — zie sectie hieronder.
+**Geen online AI, geen klinische analyse.**
+Lokale Whisper-transcriptie + microfoonopname beschikbaar (v2.0). Klinische analyse en DD geparkeerd in `future/`.
+De basisdekking-coach is actief — zie sectie hieronder.
 
 ---
 
 ## Architectuur
 
 ```
-Consult (Anamnese_App)
-        ↓ export .md
-Anonymisering (Anamnese_Anonymizer → PatientData_Preprocessing)
+Audio (.m4a/.mp3/.wav)
+        ↓ lokale Whisper (in Anamnese_App)
+Transcript + handmatige invoer
+        ↓ Anamnese_App — spreekuurtool
+Werktekst-export (.md + .txt)
+        ↓
+Anamnese_Anonymizer → PatientData_Preprocessing
+        ↓
+Anamnese_Analyzer — veldextractie
         ↓
 Online AI / EPD
 ```
@@ -39,7 +45,7 @@ Open: **http://localhost:8503**
 
 ---
 
-## Workflow v1
+## Workflow v2.0
 
 1. **Sidebar** — patiënt-ID + datum invullen (maakt consultmap aan)
 2. **Patiëntgegevens** — initialen, leeftijd, geslacht
@@ -48,10 +54,15 @@ Open: **http://localhost:8503**
 5. **Mechanisme** — handmatige inschatting dominant mechanisme
 6. **Medicatie** — relevant (naam · dosering · startdatum)
 7. **Plan** — diagnostiek, voorlichting, niet-farm., farm., interventioneel
-8. **Vrije notities** — plak transcript of aanvullingen
-9. **Dekkingsmeter** — checkt 8 verplichte kernvelden (leeg / twijfelachtig / bruikbaar)
-10. **Basisdekking gesprek** — coach signaleert open anamnese-onderdelen (9 kern + 6 experimenteel)
-11. **Export** — download `.md` of sla op in consultmap
+8. **Transcript** — vier invoermethoden (naar keuze):
+   - **Microfoonopname** → start/stop in browser → "Transcribeer opname" (lokale Whisper, offline) — gebruik Chrome; Safari kan instabiel zijn
+   - **Audio uploaden** (.m4a/.mp3/.wav) → "Transcribeer audio" (lokale Whisper, offline)
+   - `.txt` importeren (MacWhisper / AutoScriber)
+   - Handmatig plakken of typen
+9. **Vrije notities** — eigen observaties en aanvullingen
+10. **Dekkingsmeter** — checkt 8 verplichte kernvelden (leeg / twijfelachtig / bruikbaar)
+11. **Basisdekking gesprek** — coach signaleert open anamnese-onderdelen (9 kern + 6 experimenteel)
+12. **Export** — download `.md` (verslag) of `.txt` (voor Anamnese_Anonymizer)
 
 ---
 

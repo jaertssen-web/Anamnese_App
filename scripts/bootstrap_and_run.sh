@@ -68,6 +68,18 @@ pip install --quiet -r "${REQUIREMENTS}"
 log "Dependencies klaar."
 echo ""
 
+# ── ffmpeg (vereist door openai-whisper voor audio-decodering) ───────────────
+if ! command -v ffmpeg > /dev/null 2>&1; then
+    warn "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    warn "ffmpeg niet gevonden — audio-transcriptie werkt niet."
+    warn "Installeer met: brew install ffmpeg"
+    warn "De app start wel; alle andere functies werken normaal."
+    warn "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+else
+    log "ffmpeg gevonden: $(ffmpeg -version 2>&1 | head -1)"
+fi
+
 # ── Streamlit ────────────────────────────────────────────────────────────────
 log "Streamlit starten..."
 log "Open in browser: http://localhost:8503"
