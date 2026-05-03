@@ -1,4 +1,6 @@
 # ── Patiëntdata — nooit committen ─────────────────────────────────────────
+data/*
+!data/.gitkeep
 data/patienten/
 
 # ── Python cache ──────────────────────────────────────────────────────────

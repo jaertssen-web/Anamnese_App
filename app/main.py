@@ -582,6 +582,10 @@ with col_invul:
                         disabled=_is_recording,
                         use_container_width=True,
                     ):
+                        with st.spinner(
+                            f"Whisper-model laden ({_whisper_model_name})…"
+                        ):
+                            _get_whisper_model(_whisper_model_name)
                         _new_rec = AudioRecorder()
                         try:
                             _new_rec.start()
